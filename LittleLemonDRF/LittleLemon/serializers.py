@@ -50,21 +50,23 @@ class UserGroupSerializer(serializers.ModelSerializer):
 
 class CartSerializer(serializers.ModelSerializer):
     price = serializers.IntegerField(read_only=True)
-    user = serializers.IntegerField(read_only=True)
-    unit_price = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)
-    quantity = serializers.IntegerField(read_only=True)
-    menuitem = serializers.IntegerField(read_only=True)    
+    # user = serializers.IntegerField(read_only=True)
+    unit_price = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)   
     class Meta:
         model = Cart
-        fields = ['id', 'user', 'menuitem', 'quantity', 'unit_price', 'price']
+        fields = [
+            'user', 'menuitem', 'quantity', 'unit_price', 'price'
+        ]
     
 class OrderItemSerializer(serializers.ModelSerializer):
-    order = serializers.IntegerField()
     class Meta:
         model = OrderItem
-        fields = ['id', 'order_id', 'menuitem', 'quantity', 'unit_price', 'price']
+        fields = [
+            'order', 'menuitem', 'quantity', 'unit_price', 'price'
+        ]
 
 class OrderSerializer(serializers.ModelSerializer):
+    total = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True)
     class Meta:
         model = Order
-        fields = ['id', 'delivery-crew', 'status', 'total', 'date']
+        fields = ['id','user', 'delivery_crew', 'status', 'total', 'date']

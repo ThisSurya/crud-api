@@ -1,6 +1,6 @@
 from rest_framework import generics
 from .models import MenuItem, Category, Cart, Order, OrderItem
-from .serializers import MenuItemInventory, CategorySerializer, UserGroupSerializer, CartSerializer, OrderItemSerializer
+from .serializers import MenuItemInventory, CategorySerializer, UserGroupSerializer, CartSerializer, OrderItemSerializer, OrderSerializer
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
@@ -192,7 +192,7 @@ def delivery_crew(request, pk):
 @api_view(['GET', 'POST', 'DELETE'])
 @permission_classes([IsAuthenticated])
 def listcart(request):
-    pick_cart = Cart.objects.filter(user_id=request.user.id)
+    pick_cart = Cart.objects.filter(user_id=request.user.id).get()
     
     serialized_cart = CartSerializer(pick_cart)
     if request.method == 'GET':
@@ -200,7 +200,7 @@ def listcart(request):
     if request.method == 'POST':
         unit_price = MenuItem.objects.filter(id=request.POST.get('menuitem')).get()
         quantity = request.POST.get('quantity')
-        total = float(unit_price.price) * int(quantity)
+        total = float(unit_price.price) * float(quantity)
 
         serialized_cart = CartSerializer(data=request.data)
         serialized_cart.is_valid(raise_exception=True)
@@ -217,21 +217,25 @@ def listcart(request):
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def orders(request):
+    check = request.user.groups.filter(name='Manager').exists()
+    if check < 1:
+        return Response({'Message' : 'Not Authorized'}, status.HTTP_403_FORBIDDEN)
     if request.method == 'GET':
-        order = OrderItem.objects.filter(order=request.user)
-        serialized_orders = OrderItemSerializer(order)
+        order = OrderItem.objects.filter(order_id=request.user.id).all()
+        serialized_orders = OrderItemSerializer(order, many=True)
         return Response(serialized_orders.data)
     
     if request.method =='POST':
         cart = Cart.objects.filter(user_id=request.user.id).get()
-        model_order = {
-            'order' : cart.user_id,
-            'menuitem' : cart.menuitem_id,
-            'quantity' : cart.quantity,
-            'unit_price' : cart.unit_price,
-            'price' : cart.price
-        }
-        if cart == None:
+        if cart:
+            model_order = {
+                'order' : cart.user_id,
+                'menuitem' : cart.menuitem_id,
+                'quantity' : cart.quantity,
+                'unit_price' : cart.unit_price,
+                'price' : cart.price
+            }
+        if cart == None or cart == '':
             return Response({'Message' : 'may your cart is empty?'})
         serialized_orders = OrderItemSerializer(data=model_order)
         serialized_orders.is_valid(raise_exception=True)
@@ -239,10 +243,59 @@ def orders(request):
         cart.delete()
         return Response({'Message' : 'Thank you customers'}, status.HTTP_201_CREATED)
     
-@api_view(['GET'])
+@api_view(['GET', 'DELETE', 'POST', 'PUT'])
 @permission_classes([IsAuthenticated])
 def single_order(request, pk=None): 
-    order = get_object_or_404(OrderItem, pk=pk)
-    serialized_order = OrderItemSerializer(order, many=True)
+    check = request.user.groups.filter(name='Manager').exists()
+    check_delivery = request.user.groups.filter(name='delivery-crew').exists()
+    order = get_object_or_404(Order, pk=pk)
     
-    return Response(serialized_order.data)
+    if str(order.user) != str(request.user.id) and check < 1:
+        return Response({'Message' : 'This is has other person!'}, status.HTTP_403_FORBIDDEN)
+
+    if request.method == 'GET':
+        orderItem = get_object_or_404(OrderItem, pk=pk)
+        serialized_orderItem = OrderItemSerializer(orderItem)
+        return Response(serialized_orderItem.data)
+    
+    if check_delivery < 1 and check < 1:
+        return Response({'Message' : 'Not authorized'}, status.HTTP_403_FORBIDDEN)
+    
+    if request.method == 'PUT':
+        order_delivery = Order.objects.filter(pk=pk)
+
+        order_delivery.update(status = True)
+        return Response({'Message' : 'done'}, status.HTTP_200_OK)
+        
+    checkadmin = request.user.is_superuser
+    # i think 'and' in this context is become 'or'? actually in my pc does
+    if check < 1 and checkadmin != True:
+        return Response({'Message' : 'You are not authorized'}, status.HTTP_403_FORBIDDEN)
+    
+    if request.method == 'POST':
+        person = request.POST.get('delivery_crew')
+        total_price = OrderItem.objects.filter(pk=pk).get()
+
+        user = User.objects.filter(pk=person).get()
+        deliverycrew = user.groups.filter(name='delivery-crew').exists()
+        if deliverycrew != True:
+            return Response({'Message' : 'Not a delivery crew!'}, status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            serialized_order = OrderSerializer(data=request.data)
+            serialized_order.is_valid(raise_exception=True)
+            serialized_order.save(
+                total = float(total_price.price)
+            )
+        except:
+            return Response({'Message' : 'Error input'}, status.HTTP_400_BAD_REQUEST)
+        total_price.delete()
+        return Response({'Message' : 'Success'}, status.HTTP_202_ACCEPTED)
+
+    if request.method == 'DELETE':
+        order = Order.objects.filter(pk=pk).get()
+        order.delete()
+    
+
+
+    
